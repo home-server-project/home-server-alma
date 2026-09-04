@@ -11,8 +11,6 @@
 
 Build a boring, understandable AlmaLinux 10 bootc home-server operating system from AlmaLinux's **minimal-plus** content tier.
 
-The repository builds two images from the same shared Home Server layer:
-
 ```text
 AlmaLinux 10 minimal-plus
           |
@@ -28,7 +26,7 @@ AlmaLinux 10 minimal-plus
  Home Server Alma HCI
 ```
 
-The HCI image is **not** a fuller general server edition. It is exactly **Home Server Alma + virtualization**.
+The HCI image is exactly **Home Server Alma + virtualization**. It is not a separate fuller server edition.
 
 Everything useful to a normal home server belongs on **both** images. Only virtualization and tools that directly manage virtual machines belong only on HCI.
 
@@ -36,7 +34,7 @@ Everything useful to a normal home server belongs on **both** images. Only virtu
 
 Use AlmaLinux 10 **minimal-plus**, not Alma's broad standard bootc image.
 
-The custom manifest follows the Alma Black Box testing pattern and retains selected standard behavior:
+The custom manifest follows the proven Alma minimal-plus composition pattern and retains:
 
 - `minimal-plus/manifest.yaml`
 - `standard/autoupdates.yaml`
@@ -44,39 +42,33 @@ The custom manifest follows the Alma Black Box testing pattern and retains selec
 - `standard/persistent-journal.yaml`
 - `standard/generic-growfs.yaml`
 
-Initial root filesystem for bootc installation: **XFS**.
+Initial boot/root filesystem: **XFS**.
 
-Btrfs is supported as a normal data filesystem through `btrfs-progs`.
+Btrfs is normal supported data-filesystem tooling through `btrfs-progs`.
 
-Initial CPU architecture: normal AlmaLinux 10 **x86-64-v3**. An x86-64-v2 image is a separate future investigation and is not part of the first build.
+Initial CPU architecture: normal AlmaLinux 10 **x86-64-v3**. x86-64-v2 is a separate future investigation.
 
 ## 3. Container model
 
-The application deployment model is:
-
-**Podman + systemd Quadlets**.
-
-Both images include Podman, SELinux/container support and Cockpit Podman integration.
+Applications are deployed through **Podman + systemd Quadlets**.
 
 Do not include by default:
 
 - Docker/Moby
-- `docker-compose`
-- `docker-buildx`
-- `podman-compose`
+- docker-compose
+- docker-buildx
+- podman-compose
 
-Large replaceable applications such as Jellyfin, Vaultwarden, databases, media automation, download stacks, monitoring stacks and reverse proxies belong in Quadlets rather than the OS image.
+Large replaceable services such as Jellyfin, Vaultwarden, databases, media automation, monitoring stacks and reverse proxies belong in Quadlets, not in the OS image.
 
-No rpm-ostree layering workflow is part of this project. Host changes belong in rebuilt bootc images.
+No rpm-ostree host-layering workflow is part of this project. Host changes belong in rebuilt bootc images.
 
 ## 4. Features on both images
 
 ### Core host
 
 - bootc
-- NetworkManager
-- NetworkManager TUI
-- Wi-Fi support
+- NetworkManager / TUI / Wi-Fi support
 - firewalld
 - OpenSSH
 - Podman / Quadlets
@@ -87,15 +79,15 @@ No rpm-ostree layering workflow is part of this project. Host changes belong in 
 
 ### Cockpit
 
-Native host pages/bridge:
+Native host bridge/pages:
 
-- `cockpit-system`
-- `cockpit-files`
-- `cockpit-podman`
-- `cockpit-storaged`
+- cockpit-system
+- cockpit-files
+- cockpit-podman
+- cockpit-storaged
 - UPSide
 
-The web-facing `cockpit-ws` service is provided as a Podman Quadlet using `quay.io/cockpit/ws:latest`, following the immutable-host pattern already used by uCore/Alma Black Box.
+The web-facing Cockpit service is supplied as a Podman Quadlet using `quay.io/cockpit/ws:latest`.
 
 ### UPS and power
 
@@ -104,32 +96,29 @@ The web-facing `cockpit-ws` service is provided as a Podman Quadlet using `quay.
 - UPSide
 - PowerTOP
 
-NUT is included but never preconfigured. UPS model, USB identifiers, users/passwords and shutdown policy are local machine configuration. A server without a UPS should simply leave NUT unconfigured.
-
-PowerTOP is diagnostic only; the image does not automatically run `powertop --auto-tune`.
+NUT is included but never preconfigured. UPS identity, credentials and shutdown policy remain local configuration. PowerTOP is diagnostic only; no automatic `powertop --auto-tune` policy is baked in.
 
 ### Networking and remote access
 
 - Tailscale
 - NetBird
 - WireGuard tools
-- `ethtool`
-- `tcpdump`
+- ethtool
+- tcpdump
 - DNS tools
 - traceroute
 - ncat/netcat
 - iperf3
 
-Tailscale and NetBird are installed but not enrolled or configured by the generic image.
+Tailscale and NetBird are installed but never enrolled by the generic image.
 
 ### Storage/NAS
 
-- XFS support for system/root
-- `btrfs-progs`
+- XFS root support
+- btrfs-progs
 - mergerfs
 - NFS tools
-- Samba
-- Samba usershares
+- Samba / usershares
 - rclone
 - duperemove
 - SMART tools
@@ -137,13 +126,13 @@ Tailscale and NetBird are installed but not enrolled or configured by the generi
 - hdparm
 - USB/PCI utilities
 
-mergerfs uses its official EL10 RPM, pinned to a release and SHA-256 checksum.
+**mergerfs is release-critical.** The build follows the latest stable upstream EL10 x86_64 RPM by default, verifies the SHA-256 digest published for that release asset, and then runs a real FUSE mount/read/write/unmount health test before publication.
 
-SnapRAID is intentionally deferred for now. ZFS is deliberately excluded.
+SnapRAID remains deferred. ZFS is deliberately excluded.
 
 ### Hardware and firmware
 
-Both images should have good physical-server coverage, including:
+Both images target good physical-server coverage:
 
 - AMD CPU microcode/firmware
 - Intel CPU microcode
@@ -154,34 +143,34 @@ Both images should have good physical-server coverage, including:
 - Intel Wi-Fi firmware
 - Realtek firmware
 - MediaTek/NXP/TI wireless firmware where packaged for Alma 10
-- `fwupd` / `fwupd-efi`
+- fwupd / fwupd-efi
 - lm_sensors
 - Realtek USB Ethernet udev rule adapted from upstream uCore
 
 ### Intel and AMD media acceleration
 
-GPU/media support belongs on **both** images, not only HCI.
+GPU/media support belongs on **both** images.
 
 Intel:
 
-- Alma kernel i915/Intel DRM support
+- Alma kernel Intel DRM/i915 support
 - Intel GPU firmware
-- `intel-media-driver` for modern Intel Quick Sync / VA-API
-- RPM Fusion EL10 is allowed only as a narrowly scoped source for the Intel media stack and dependencies
-- `/dev/dri` passthrough to Podman containers must be validated with a real Jellyfin hardware transcode
+- `intel-media-driver` for modern Quick Sync / VA-API
+- narrowly scoped RPM Fusion EL10 source
+- later real Jellyfin `/dev/dri` transcode validation
 
 AMD:
 
 - Alma kernel amdgpu support
 - AMD GPU firmware
-- Mesa VA-API userspace support
-- `/dev/dri` passthrough must be validated with a real workload
+- Mesa VA-API userspace
+- later real `/dev/dri` workload validation
 
-Do not claim media support based only on package installation; real hardware testing is required later.
+CI verifies the package/library contract; actual hardware acceleration claims require real hardware testing.
 
-### Small administration tools
+### Administration tools
 
-Carry these on both images:
+Intended on both images:
 
 - Micro
 - Superfile (`spf`)
@@ -194,19 +183,13 @@ Carry these on both images:
 - PowerTOP
 - NUT utilities
 
-UPSide and Superfile are built in isolated builder stages so Node/Go/build toolchains do not remain in the final operating-system image.
+UPSide and Superfile use isolated builders so Node/Go build toolchains do not remain in the OS image.
 
 ## 5. zram / swap policy
 
-Use Alma's `zram-generator`.
+Use Alma's `zram-generator` with a fixed **4 GiB** `/dev/zram0` swap device.
 
-Project policy:
-
-- fixed **4 GiB** `/dev/zram0` swap device
-- no disk swap partition required
-- no additional aggressive memory tuning by default
-
-Configuration:
+No disk swap partition is required by the project.
 
 ```ini
 [zram0]
@@ -215,35 +198,31 @@ zram-size = 4096
 
 ## 6. HCI-only delta
 
-HCI gets the exact same Home Server feature layer plus virtualization.
+HCI receives the exact same Home Server layer plus:
 
-HCI-only capability:
-
-- `cockpit-machines` — browser VM management
-- `libvirt-client` — `virsh`
-- `libvirt-daemon-kvm`
-- QEMU/KVM packages
-- `virt-install`
-- libvirt network/storage dependencies
-- `swtpm` and SELinux policy
+- cockpit-machines
+- libvirt-client (`virsh`)
+- libvirt-daemon-kvm
+- QEMU/KVM
+- virt-install
+- required libvirt network/storage dependencies
+- swtpm + policy
 - OVMF/UEFI VM firmware
-- libosinfo / osinfo database
+- libosinfo / osinfo-db
 - VirtUI Manager
-- noVNC/websockify only as direct VirtUI/VM-console dependencies
+- direct noVNC/websockify/console dependencies where required
 
-VirtUI Manager should preserve the existing Home Server uCore packaging strategy: a local RPM with its compatible Textual dependency isolated under `/usr/libexec/virtui-manager`, without replacing Alma's system Python packages.
+VirtUI Manager is packaged as a local RPM with its Python/Textual runtime isolated under `/usr/libexec/virtui-manager`; it must not replace Alma system Python packages.
 
-Do **not** carry the uBlue `ublue-os-libvirt-workarounds` package; it is Fedora/uCore-specific. Only add an Alma workaround if Alma testing proves a real need.
+The builder follows the current stable VirtUI tag and the Textual requirement declared by that VirtUI release. Build-only Setuptools is upgraded to a compatible `>=77` so current SPDX metadata can be parsed; that builder tool does not enter the final image.
+
+Do not carry uBlue's Fedora-specific `ublue-os-libvirt-workarounds` package unless Alma testing proves an equivalent workaround is genuinely required.
 
 ## 7. Deliberately excluded
 
-Initial scope explicitly excludes:
-
-- Docker/Moby
-- Docker Compose / Buildx
+- Docker/Moby and Docker Compose/Buildx
 - Podman Compose
-- ZFS and ZFS akmods
-- Cockpit ZFS Manager
+- ZFS / ZFS akmods / Cockpit ZFS Manager
 - Sanoid/Syncoid ZFS workflow
 - NVIDIA drivers/toolkit/images
 - uBlue kernel/kmod/signing machinery
@@ -253,9 +232,9 @@ Initial scope explicitly excludes:
 - large application services
 - site-specific storage/network/UPS/application configuration
 
-A future minimal image is not part of the current design.
+A future minimal image is not part of the current project.
 
-## 8. Package/source policy
+## 8. Package and update policy
 
 Preferred source order:
 
@@ -265,51 +244,88 @@ Preferred source order:
 4. official upstream EL10 release assets
 5. narrowly scoped third-party repositories only when needed
 
-Current external sources:
+Current external sources include Tailscale, NetBird, narrowly scoped RPM Fusion for Intel media, mergerfs upstream releases, and upstream source builds for UPSide, Superfile and VirtUI Manager.
 
-- Tailscale official RHEL 10 repository
-- NetBird official RPM repository
-- RPM Fusion EL10, narrowly scoped to Intel media acceleration
-- mergerfs official EL10 release RPM
-- upstream source builds for UPSide, Superfile and VirtUI Manager
+### Latest by default
 
-External source-built projects are pinned to known versions/commits. Direct RPM downloads are pinned by SHA-256.
+The normal maintenance model is:
 
-## 9. Supply chain and CI
+```text
+latest stable upstream
+        -> build
+        -> health validation
+        -> publish if critical health passes
+```
 
-The repository must build **both images in parallel from day one**.
+Alma/EPEL packages update naturally with each rebuild. mergerfs, UPSide, Superfile and VirtUI Manager also resolve current stable upstream releases on each rebuild.
 
-Required build behavior:
+Repository version pins are **not** routine maintenance. `software.env` contains empty emergency override variables. A specific version is pinned only after a demonstrated upstream regression and removed when the regression is resolved.
 
-- GitHub Actions matrix for normal + HCI targets
-- shared minimal-plus/common build layer
+## 9. Health contract and release gates
+
+Detailed policy: [`health-and-update-policy.md`](health-and-update-policy.md).
+
+### Critical on both images
+
+A failure blocks publication:
+
+- bootc lint
+- Podman / Quadlet integration
+- NetworkManager / firewalld / SSH tooling
+- SELinux and image-trust integrity
+- 4 GiB zram configuration
+- Btrfs userspace smoke test
+- NFS/Samba core tooling
+- Intel/AMD media package contract
+- **mergerfs real FUSE mount/read/write/unmount test**
+- required Cockpit host components
+
+The mergerfs check is intentionally release-critical because storage-pool failure can remove application access to media/data even when the OS itself still boots.
+
+### Critical HCI-only
+
+- KVM/QEMU/libvirt packages and binaries
+- cockpit-machines
+- virsh / virt-install
+- swtpm / VM firmware
+- VirtUI Manager imports and entry points
+
+### Optional/degraded
+
+Failures in non-runtime tools such as UPSide, Superfile, Micro, btop, PowerTOP, NUT UI/tooling, Tailscale/NetBird and similar helpers are clearly reported as degraded but do not automatically block an otherwise healthy OS/security rebuild.
+
+The normal image must explicitly fail if the KVM/libvirt HCI host stack leaks into it.
+
+## 10. Supply chain and CI
+
+The repository builds **both images in parallel**.
+
+Required behavior:
+
+- resolve current external software once per workflow so both images use the same dependency snapshot
+- resolve base/builder container references to digests
+- shared minimal-plus/common feature layer
 - HCI-only virtualization delta
-- resolve important builder/base image references to digests
-- `bootc container lint --fatal-warnings`
-- build-time package/command validation
+- functional critical health checks before push
+- optional health summary after critical checks
 - Cosign sign exact published image digests
 - verify signatures after publication
-- embed repository-specific image trust for future bootc updates
-- no credentials or host-specific data in layers
-- no build toolchains in final images when a builder stage can avoid them
-- clean build-time `/var` state
-
-The normal-image CI must explicitly fail if the KVM/libvirt HCI host stack leaks into it.
+- repository-specific image trust for bootc updates
+- no credentials or site-specific data in layers
+- no build toolchains in final images when isolated builders can avoid them
 
 Published tags:
 
 - moving `:10`
 - immutable `10-YYYYMMDD-<git-sha>`
 
-A GitHub Release is created only after **both** image builds succeed and matching immutable tags exist.
+A GitHub Release is created only after **both** images succeed.
 
-## 10. Development/readiness policy
+## 11. Development/readiness policy
 
-The project is currently **development / VM-testing only**.
+Current status: **development / VM-testing only**.
 
-README and releases must warn users not to deploy this to a production or real home server yet.
-
-Maturity path:
+Do not deploy on a production or real home server yet.
 
 ```text
 builds
@@ -325,73 +341,71 @@ builds
   -> recommended
 ```
 
-## 11. Testing plan
+## 12. Testing plan
+
+### CI — both images
+
+- build and bootc lint
+- critical health contract
+- real mergerfs FUSE smoke test
+- Btrfs userspace smoke test
+- optional/degraded report
+- base/HCI separation check
 
 ### VM validation — both images
 
-- first boot
-- reboot/shutdown
-- networking
-- SSH
-- firewalld
+- first boot / reboot / shutdown
+- networking, SSH and firewalld
 - Cockpit
-- Podman
-- simple Quadlet boot persistence
+- Podman and a persistent Quadlet
 - SELinux enforcing
 - storage tooling
 - 4 GiB zram
-- bootc status/update/rollback behavior
-- NUT/Tailscale/NetBird remain unconfigured unless administrator enables them
+- bootc update/rollback
+- NUT/Tailscale/NetBird remain unconfigured until explicitly enabled
 
 ### HCI VM validation
 
-- KVM/QEMU/libvirt packages present
 - Cockpit Machines
-- `virsh`
-- `virt-install`
-- VirtUI Manager
-- VM storage pool
-- libvirt network
-- bridged networking
+- virsh / virt-install / VirtUI Manager
+- create and boot a VM
+- storage pool and networking
+- bridge networking
 - UEFI guest
 - virtual TPM
 - graceful VM shutdown
 
 ### Bare-metal validation
 
-After VM testing:
-
 - UEFI install/boot
 - Ethernet/Wi-Fi firmware
 - USB/NVMe/SATA
 - SMART/sensors/fwupd
 - CPU microcode
-- Intel/AMD GPU firmware
-- `/dev/dri`
+- Intel/AMD GPU firmware and `/dev/dri`
 - Btrfs data volumes
 - mergerfs
 - bootc update/rollback
 
-### Real workload validation
+### Real workloads
 
-Later deploy actual Quadlets, including Jellyfin, and verify permissions, SELinux, bind mounts, networking and real Intel/AMD hardware transcoding.
+Deploy actual Quadlets including Jellyfin and validate permissions, SELinux, bind mounts, networking, mergerfs-backed media paths and real Intel/AMD hardware transcoding.
 
-## 12. Installer direction
+## 13. Installer direction
 
 Installer/builder work belongs under the Home Server Project as a separate reusable repository/template, not coupled to Alma Black Box.
 
-Expected future workflow:
+Expected later workflow:
 
 1. choose Home Server Alma or HCI
 2. build installer ISO
 3. write USB
 4. disconnect disks that must not be touched
-5. leave only target OS drive connected where practical
-6. install
-7. boot and configure local storage/network
-8. deploy Quadlets
+5. install to the target OS drive
+6. boot and configure local storage/network
+7. deploy Quadlets
 
-## 13. Production trial safety
+## 14. Production trial safety
 
 Do not replace the current uCore server immediately.
 
@@ -407,19 +421,19 @@ Preferred future trial:
 
 Clonezilla remains an additional backup option.
 
-## 14. Reference projects
+## 15. References
 
 - Universal Blue uCore: https://github.com/ublue-os/ucore
 - Home Server uCore: https://github.com/home-server-project/home-server-ucore
-- Alma Black Box reference: https://github.com/highwaytoit/alma-black-box (`testing` branch was used during design)
+- Alma Black Box reference: https://github.com/highwaytoit/alma-black-box
 - AlmaLinux bootc images: https://github.com/AlmaLinux/bootc-images
 
 Alma Black Box is a reference implementation only. Home Server Alma does not derive from it.
 
-## 15. Short definition
+## 16. Short definition
 
-**Home Server Alma** is an AlmaLinux 10 minimal-plus bootc image for self-hosted servers with the full agreed Home Server feature set: Podman Quadlets, Cockpit, storage/NAS tools, broad hardware support, Intel/AMD media acceleration, UPS integration, VPN tooling and practical terminal administration tools.
+**Home Server Alma** is an AlmaLinux 10 minimal-plus bootc image for self-hosted servers with Podman Quadlets, Cockpit, storage/NAS tooling, broad hardware support, Intel/AMD media acceleration, UPS integration, VPN tooling and practical terminal administration tools.
 
-**Home Server Alma HCI** is that exact same image plus KVM/QEMU/libvirt, Cockpit Machines, `virsh`, `virt-install`, VirtUI Manager and direct virtualization dependencies.
+**Home Server Alma HCI** is that exact same image plus KVM/QEMU/libvirt, Cockpit Machines, virsh, virt-install, VirtUI Manager and direct virtualization dependencies.
 
 The objective is a **boring, understandable and recoverable home-server host** on a slower-moving enterprise-Linux base, with applications deployed reproducibly as Podman Quadlets.

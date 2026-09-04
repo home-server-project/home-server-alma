@@ -36,8 +36,22 @@ The system uses a fixed **4 GiB zram swap device** and does not require a disk s
 Current goal: build both signed images, validate them in VMs, then proceed to controlled bare-metal
 testing. The repository should not be considered production-ready until that testing is complete.
 
-The architecture and feature decisions are tracked in
+Architecture and feature decisions are tracked in
 [`docs/home-server-alma-roadmap.md`](docs/home-server-alma-roadmap.md).
+
+Release health and dependency-update behavior are defined in
+[`docs/health-and-update-policy.md`](docs/health-and-update-policy.md).
+
+## Update model
+
+Alma/EPEL/RPM packages follow the current enabled repositories on every rebuild. External projects
+such as mergerfs, UPSide, Superfile and VirtUI Manager follow their latest stable upstream release by
+default. Version pins are emergency regression overrides, not routine maintenance.
+
+Critical server functionality is tested before publication. In particular, mergerfs must complete a
+real FUSE mount/read/write/unmount smoke test, and the HCI image must pass its virtualization-management
+health checks. Optional utilities may be reported as degraded without blocking an otherwise healthy
+OS image.
 
 ## Images and releases
 

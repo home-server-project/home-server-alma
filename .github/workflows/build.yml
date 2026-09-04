@@ -24,8 +24,50 @@ env:
   FEDORA_BUILDER_IMAGE: registry.fedoraproject.org/fedora:44
 
 jobs:
+  resolve_external:
+    name: Resolve current external software
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    outputs:
+      mergerfs_tag: ${{ steps.external.outputs.mergerfs_tag }}
+      mergerfs_url: ${{ steps.external.outputs.mergerfs_url }}
+      mergerfs_sha256: ${{ steps.external.outputs.mergerfs_sha256 }}
+      upside_tag: ${{ steps.external.outputs.upside_tag }}
+      superfile_tag: ${{ steps.external.outputs.superfile_tag }}
+      virtui_tag: ${{ steps.external.outputs.virtui_tag }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Resolve latest stable external software
+        id: external
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          ./build_files/resolve-external-software.sh /tmp/external.env
+          cat /tmp/external.env >> "${GITHUB_OUTPUT}"
+
+      - name: Resolution summary
+        shell: bash
+        run: |
+          {
+            echo '## External software snapshot'
+            echo
+            echo "- mergerfs: ${{ steps.external.outputs.mergerfs_tag }}"
+            echo "- UPSide: ${{ steps.external.outputs.upside_tag || 'degraded/unresolved' }}"
+            echo "- Superfile: ${{ steps.external.outputs.superfile_tag || 'degraded/unresolved' }}"
+            echo "- VirtUI Manager: ${{ steps.external.outputs.virtui_tag || 'unresolved; HCI will fail' }}"
+            echo
+            echo 'Latest stable is resolved on every rebuild. Pins in software.env are emergency regression overrides only.'
+          } >> "${GITHUB_STEP_SUMMARY}"
+
   build:
     name: Build ${{ matrix.image_name }}
+    needs: resolve_external
     runs-on: ubuntu-24.04
 
     strategy:
@@ -80,20 +122,10 @@ jobs:
             printf '%s@%s' "${image%:*}" "${digest}"
           }
 
-          repos_ref="$(resolve_ref "${ALMA_REPOS_IMAGE}")"
-          imagectl_ref="$(resolve_ref "${BOOTC_IMAGECTL_IMAGE}")"
-          alma_builder_ref="$(resolve_ref "${ALMA_BUILDER_IMAGE}")"
-          fedora_builder_ref="$(resolve_ref "${FEDORA_BUILDER_IMAGE}")"
-
-          echo "repos_ref=${repos_ref}" >> "${GITHUB_OUTPUT}"
-          echo "imagectl_ref=${imagectl_ref}" >> "${GITHUB_OUTPUT}"
-          echo "alma_builder_ref=${alma_builder_ref}" >> "${GITHUB_OUTPUT}"
-          echo "fedora_builder_ref=${fedora_builder_ref}" >> "${GITHUB_OUTPUT}"
-
-          echo "Alma repository image: ${repos_ref}"
-          echo "bootc imagectl image: ${imagectl_ref}"
-          echo "Alma builder image: ${alma_builder_ref}"
-          echo "Fedora builder image: ${fedora_builder_ref}"
+          echo "repos_ref=$(resolve_ref "${ALMA_REPOS_IMAGE}")" >> "${GITHUB_OUTPUT}"
+          echo "imagectl_ref=$(resolve_ref "${BOOTC_IMAGECTL_IMAGE}")" >> "${GITHUB_OUTPUT}"
+          echo "alma_builder_ref=$(resolve_ref "${ALMA_BUILDER_IMAGE}")" >> "${GITHUB_OUTPUT}"
+          echo "fedora_builder_ref=$(resolve_ref "${FEDORA_BUILDER_IMAGE}")" >> "${GITHUB_OUTPUT}"
 
       - name: Prepare image names and deterministic release tag
         shell: bash
@@ -130,6 +162,11 @@ jobs:
             --build-arg "BOOTC_IMAGECTL_IMAGE=${BOOTC_IMAGECTL_REF}" \
             --build-arg "ALMA_BUILDER_IMAGE=${ALMA_BUILDER_REF}" \
             --build-arg "FEDORA_BUILDER_IMAGE=${FEDORA_BUILDER_REF}" \
+            --build-arg "UPSIDE_TAG=${{ needs.resolve_external.outputs.upside_tag }}" \
+            --build-arg "SUPERFILE_TAG=${{ needs.resolve_external.outputs.superfile_tag }}" \
+            --build-arg "VIRTUI_MANAGER_TAG=${{ needs.resolve_external.outputs.virtui_tag }}" \
+            --build-arg "MERGERFS_URL=${{ needs.resolve_external.outputs.mergerfs_url }}" \
+            --build-arg "MERGERFS_SHA256=${{ needs.resolve_external.outputs.mergerfs_sha256 }}" \
             --build-arg "HOME_SERVER_ALMA_REPOSITORY=${IMAGE_REGISTRY}/home-server-alma" \
             --build-arg "HOME_SERVER_ALMA_HCI_REPOSITORY=${IMAGE_REGISTRY}/home-server-alma-hci" \
             --label "org.opencontainers.image.revision=${GITHUB_SHA}" \
@@ -138,55 +175,49 @@ jobs:
             --file Containerfile \
             .
 
-      - name: Validate completed image
+      - name: Critical common health
         shell: bash
         run: |
           set -euo pipefail
+          sudo podman run --rm --privileged --device /dev/fuse \
+            --entrypoint /usr/libexec/home-server-alma/health/critical-common \
+            "${IMAGE_NAME}:test"
 
+      - name: Critical HCI health
+        if: matrix.validation_mode == 'hci'
+        shell: bash
+        run: |
+          set -euo pipefail
           sudo podman run --rm \
-            --entrypoint /bin/bash \
-            "${IMAGE_NAME}:test" \
-            -c '
-              set -euo pipefail
-              bootc container lint --fatal-warnings
-              jq empty /etc/containers/policy.json
-              test -f /usr/lib/pki/containers/home-server-project.pub
-              test -f /etc/containers/registries.d/ghcr.io-home-server-project.yaml
-              test -f /etc/systemd/zram-generator.conf
-              grep -Eq "^zram-size[[:space:]]*=[[:space:]]*4096$" /etc/systemd/zram-generator.conf
-              test -f /usr/share/cockpit/upside/manifest.json
-              test -f /usr/share/containers/systemd/cockpit.container
-              command -v podman
-              command -v mergerfs
-              command -v btrfs
-              command -v spf
-              command -v micro
-              command -v upsc
-              rpm -q intel-media-driver mesa-va-drivers btrfs-progs mergerfs
-              semodule -l >/dev/null
-            '
+            --entrypoint /usr/libexec/home-server-alma/health/critical-hci \
+            "${IMAGE_NAME}:test"
 
-          if [[ "${{ matrix.validation_mode }}" == "hci" ]]; then
-            sudo podman run --rm \
-              --entrypoint /bin/bash \
-              "${IMAGE_NAME}:test" \
-              -c '
-                set -euo pipefail
-                command -v virsh
-                command -v virt-install
-                command -v virtui-manager
-                command -v vmc
-                rpm -q cockpit-machines libvirt-client libvirt-daemon-kvm qemu-kvm virtui-manager
-                PYTHONPATH=/usr/libexec/virtui-manager/python \
-                  python3 -c "import textual, libvirt, yaml, requests, netifaces, gi, packaging, markdown_it, vmanager.wrapper"
-              '
-          else
-            if rpm_out="$(sudo podman run --rm --entrypoint rpm "${IMAGE_NAME}:test" -q libvirt-daemon-kvm 2>&1)"; then
-              echo "ERROR: base image unexpectedly contains libvirt-daemon-kvm"
-              echo "${rpm_out}"
-              exit 1
-            fi
+      - name: Confirm base image has no HCI host stack
+        if: matrix.validation_mode == 'base'
+        shell: bash
+        run: |
+          set -euo pipefail
+          if rpm_out="$(sudo podman run --rm --entrypoint rpm "${IMAGE_NAME}:test" -q libvirt-daemon-kvm 2>&1)"; then
+            echo 'ERROR: base image unexpectedly contains libvirt-daemon-kvm'
+            echo "${rpm_out}"
+            exit 1
           fi
+          echo 'PASS  HCI virtualization stack absent from base image'
+
+      - name: Optional feature health
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo podman run --rm \
+            --entrypoint /usr/libexec/home-server-alma/health/optional \
+            "${IMAGE_NAME}:test" | tee /tmp/optional-health.txt
+          {
+            echo '### Optional feature health'
+            echo
+            echo '```text'
+            cat /tmp/optional-health.txt
+            echo '```'
+          } >> "${GITHUB_STEP_SUMMARY}"
 
       - name: Login to GHCR
         if: github.event_name != 'pull_request' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
@@ -209,7 +240,6 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-
           sudo podman tag "${IMAGE_NAME}:test" "${IMAGE_REPOSITORY}:${BUILD_TAG}"
           sudo podman tag "${IMAGE_NAME}:test" "${IMAGE_REPOSITORY}:${CURRENT_TAG}"
 
@@ -217,7 +247,6 @@ jobs:
             --authfile "${HOME}/.docker/config.json" \
             --digestfile /tmp/published-digest \
             "${IMAGE_REPOSITORY}:${BUILD_TAG}"
-
           sudo podman push \
             --authfile "${HOME}/.docker/config.json" \
             "${IMAGE_REPOSITORY}:${CURRENT_TAG}"
@@ -304,7 +333,6 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-
           registry="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}"
           short_sha="${GITHUB_SHA:0:7}"
           build_date="$(git show -s --format=%cd --date=format:%Y%m%d HEAD)"
@@ -312,10 +340,8 @@ jobs:
 
           normal_image="${registry}/home-server-alma:${release_tag}"
           hci_image="${registry}/home-server-alma-hci:${release_tag}"
-
           normal_digest="$(skopeo inspect --format '{{.Digest}}' "docker://${normal_image}")"
           hci_digest="$(skopeo inspect --format '{{.Digest}}' "docker://${hci_image}")"
-
           [[ "${normal_digest}" =~ ^sha256:[0-9a-f]{64}$ ]]
           [[ "${hci_digest}" =~ ^sha256:[0-9a-f]{64}$ ]]
 
@@ -328,48 +354,17 @@ jobs:
 
           ## Home Server Alma 10
 
-          Both images were built from the same AlmaLinux 10 minimal-plus Home Server feature layer.
-          The HCI image adds only the virtualization stack and VM-management tools.
+          Both images passed their critical release-health contract. Optional tools may be reported as degraded in the corresponding Actions build summary without blocking an otherwise healthy OS image.
 
           ### Home Server Alma
-
-          Current image:
-
-          \`\`\`text
-          ${registry}/home-server-alma:${CURRENT_TAG}
-          \`\`\`
-
-          Immutable image:
-
-          \`\`\`text
-          ${normal_image}
-          \`\`\`
-
-          Digest:
-
-          \`\`\`text
-          ${normal_digest}
-          \`\`\`
+          Current: \`${registry}/home-server-alma:${CURRENT_TAG}\`
+          Immutable: \`${normal_image}\`
+          Digest: \`${normal_digest}\`
 
           ### Home Server Alma HCI
-
-          Current image:
-
-          \`\`\`text
-          ${registry}/home-server-alma-hci:${CURRENT_TAG}
-          \`\`\`
-
-          Immutable image:
-
-          \`\`\`text
-          ${hci_image}
-          \`\`\`
-
-          Digest:
-
-          \`\`\`text
-          ${hci_digest}
-          \`\`\`
+          Current: \`${registry}/home-server-alma-hci:${CURRENT_TAG}\`
+          Immutable: \`${hci_image}\`
+          Digest: \`${hci_digest}\`
 
           Both published image digests are signed with the Home Server Project Cosign key.
           EOF_NOTES
