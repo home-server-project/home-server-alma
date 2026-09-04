@@ -1,0 +1,6 @@
+*.iso
+*.qcow2
+*.raw
+*.log
+*.tmp
+.DS_Store

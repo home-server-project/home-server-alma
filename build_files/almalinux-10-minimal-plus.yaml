@@ -1,0 +1,45 @@
+releasever: 10
+
+repos:
+  - baseos
+  - appstream
+
+variables:
+  distro: "almalinux10"
+
+# Build from AlmaLinux's bootc minimal-plus content tier. Pull in selected
+# standard behavior without inheriting the broad standard server package set.
+include:
+  - minimal-plus/manifest.yaml
+  - standard/autoupdates.yaml
+  - standard/system-configuration.yaml
+  - standard/persistent-journal.yaml
+  - standard/generic-growfs.yaml
+
+packages:
+  - almalinux-repos
+
+postprocess:
+  - |
+    #!/usr/bin/env bash
+    set -euo pipefail
+    mkdir -p /usr/lib/bootc/install/
+    cat > /usr/lib/bootc/install/20-rhel.toml << EOF_INSTALL
+    [install]
+    root-fs-type = "xfs"
+    EOF_INSTALL
+  - |
+    #!/usr/bin/env bash
+    set -euo pipefail
+    # AlmaLinux bootc currently does not ship the bootc dracut module expected
+    # by newer bootc-base manifests. Match AlmaLinux's upstream workaround.
+    DRACUT_CONF="/usr/lib/dracut/dracut.conf.d/20-bootc-base.conf"
+    if [ -f "${DRACUT_CONF}" ]; then
+      sed -i 's/ bootc / /' "${DRACUT_CONF}"
+    fi
+  - |
+    #!/usr/bin/env bash
+    set -euo pipefail
+    dnf clean all
+    rm /var/{log,cache,lib}/* -rf
+    systemctl preset-all

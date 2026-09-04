@@ -1,0 +1,390 @@
+---
+name: Build signed Home Server Alma images
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+    paths-ignore:
+      - '**/README.md'
+      - 'docs/**'
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref || github.run_id }}
+  cancel-in-progress: true
+
+env:
+  IMAGE_REGISTRY: ghcr.io/${{ github.repository_owner }}
+  CURRENT_TAG: '10'
+  ALMA_REPOS_IMAGE: quay.io/almalinuxorg/10-base:10
+  BOOTC_IMAGECTL_IMAGE: quay.io/centos-bootc/centos-bootc:stream10
+  ALMA_BUILDER_IMAGE: quay.io/almalinuxorg/10-kitten-base:10-kitten
+  FEDORA_BUILDER_IMAGE: registry.fedoraproject.org/fedora:44
+
+jobs:
+  build:
+    name: Build ${{ matrix.image_name }}
+    runs-on: ubuntu-24.04
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - image_name: home-server-alma
+            target: home-server-alma
+            validation_mode: base
+          - image_name: home-server-alma-hci
+            target: home-server-alma-hci
+            validation_mode: hci
+
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Maximize build space
+        uses: ublue-os/remove-unwanted-software@695eb75bc387dbcd9685a8e72d23439d8686cba6
+
+      - name: Install build dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y podman skopeo jq
+
+      - name: Install Cosign
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+        with:
+          cosign-release: 'v3.1.2'
+
+      - name: Resolve build inputs to digests
+        id: inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          resolve_ref() {
+            local image="$1"
+            local digest
+            digest="$(skopeo inspect \
+              --override-arch amd64 \
+              --format '{{.Digest}}' \
+              "docker://${image}")"
+            [[ "${digest}" =~ ^sha256:[0-9a-f]{64}$ ]]
+            printf '%s@%s' "${image%:*}" "${digest}"
+          }
+
+          repos_ref="$(resolve_ref "${ALMA_REPOS_IMAGE}")"
+          imagectl_ref="$(resolve_ref "${BOOTC_IMAGECTL_IMAGE}")"
+          alma_builder_ref="$(resolve_ref "${ALMA_BUILDER_IMAGE}")"
+          fedora_builder_ref="$(resolve_ref "${FEDORA_BUILDER_IMAGE}")"
+
+          echo "repos_ref=${repos_ref}" >> "${GITHUB_OUTPUT}"
+          echo "imagectl_ref=${imagectl_ref}" >> "${GITHUB_OUTPUT}"
+          echo "alma_builder_ref=${alma_builder_ref}" >> "${GITHUB_OUTPUT}"
+          echo "fedora_builder_ref=${fedora_builder_ref}" >> "${GITHUB_OUTPUT}"
+
+          echo "Alma repository image: ${repos_ref}"
+          echo "bootc imagectl image: ${imagectl_ref}"
+          echo "Alma builder image: ${alma_builder_ref}"
+          echo "Fedora builder image: ${fedora_builder_ref}"
+
+      - name: Prepare image names and deterministic release tag
+        shell: bash
+        run: |
+          set -euo pipefail
+          registry="${IMAGE_REGISTRY,,}"
+          image_name="${{ matrix.image_name }}"
+          short_sha="${GITHUB_SHA:0:7}"
+          build_date="$(git show -s --format=%cd --date=format:%Y%m%d HEAD)"
+          build_tag="${CURRENT_TAG}-${build_date}-${short_sha}"
+
+          echo "IMAGE_REGISTRY=${registry}" >> "${GITHUB_ENV}"
+          echo "IMAGE_NAME=${image_name}" >> "${GITHUB_ENV}"
+          echo "IMAGE_REPOSITORY=${registry}/${image_name}" >> "${GITHUB_ENV}"
+          echo "BUILD_TAG=${build_tag}" >> "${GITHUB_ENV}"
+
+      - name: Build image
+        shell: bash
+        env:
+          ALMA_REPOS_REF: ${{ steps.inputs.outputs.repos_ref }}
+          BOOTC_IMAGECTL_REF: ${{ steps.inputs.outputs.imagectl_ref }}
+          ALMA_BUILDER_REF: ${{ steps.inputs.outputs.alma_builder_ref }}
+          FEDORA_BUILDER_REF: ${{ steps.inputs.outputs.fedora_builder_ref }}
+        run: |
+          set -euo pipefail
+
+          sudo podman build \
+            --pull=always \
+            --security-opt=label=disable \
+            --cap-add=all \
+            --device /dev/fuse \
+            --target "${{ matrix.target }}" \
+            --build-arg "ALMA_REPOS_IMAGE=${ALMA_REPOS_REF}" \
+            --build-arg "BOOTC_IMAGECTL_IMAGE=${BOOTC_IMAGECTL_REF}" \
+            --build-arg "ALMA_BUILDER_IMAGE=${ALMA_BUILDER_REF}" \
+            --build-arg "FEDORA_BUILDER_IMAGE=${FEDORA_BUILDER_REF}" \
+            --build-arg "HOME_SERVER_ALMA_REPOSITORY=${IMAGE_REGISTRY}/home-server-alma" \
+            --build-arg "HOME_SERVER_ALMA_HCI_REPOSITORY=${IMAGE_REGISTRY}/home-server-alma-hci" \
+            --label "org.opencontainers.image.revision=${GITHUB_SHA}" \
+            --label "org.opencontainers.image.created=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            --tag "${IMAGE_NAME}:test" \
+            --file Containerfile \
+            .
+
+      - name: Validate completed image
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          sudo podman run --rm \
+            --entrypoint /bin/bash \
+            "${IMAGE_NAME}:test" \
+            -c '
+              set -euo pipefail
+              bootc container lint --fatal-warnings
+              jq empty /etc/containers/policy.json
+              test -f /usr/lib/pki/containers/home-server-project.pub
+              test -f /etc/containers/registries.d/ghcr.io-home-server-project.yaml
+              test -f /etc/systemd/zram-generator.conf
+              grep -Eq "^zram-size[[:space:]]*=[[:space:]]*4096$" /etc/systemd/zram-generator.conf
+              test -f /usr/share/cockpit/upside/manifest.json
+              test -f /usr/share/containers/systemd/cockpit.container
+              command -v podman
+              command -v mergerfs
+              command -v btrfs
+              command -v spf
+              command -v micro
+              command -v upsc
+              rpm -q intel-media-driver mesa-va-drivers btrfs-progs mergerfs
+              semodule -l >/dev/null
+            '
+
+          if [[ "${{ matrix.validation_mode }}" == "hci" ]]; then
+            sudo podman run --rm \
+              --entrypoint /bin/bash \
+              "${IMAGE_NAME}:test" \
+              -c '
+                set -euo pipefail
+                command -v virsh
+                command -v virt-install
+                command -v virtui-manager
+                command -v vmc
+                rpm -q cockpit-machines libvirt-client libvirt-daemon-kvm qemu-kvm virtui-manager
+                PYTHONPATH=/usr/libexec/virtui-manager/python \
+                  python3 -c "import textual, libvirt, yaml, requests, netifaces, gi, packaging, markdown_it, vmanager.wrapper"
+              '
+          else
+            if rpm_out="$(sudo podman run --rm --entrypoint rpm "${IMAGE_NAME}:test" -q libvirt-daemon-kvm 2>&1)"; then
+              echo "ERROR: base image unexpectedly contains libvirt-daemon-kvm"
+              echo "${rpm_out}"
+              exit 1
+            fi
+          fi
+
+      - name: Login to GHCR
+        if: github.event_name != 'pull_request' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+        shell: bash
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          mkdir -p "${HOME}/.docker"
+          printf '%s' "${GHCR_TOKEN}" | podman login \
+            --authfile "${HOME}/.docker/config.json" \
+            ghcr.io \
+            --username "${GITHUB_ACTOR}" \
+            --password-stdin
+          chmod 600 "${HOME}/.docker/config.json"
+
+      - name: Push image tags
+        id: push
+        if: github.event_name != 'pull_request' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          sudo podman tag "${IMAGE_NAME}:test" "${IMAGE_REPOSITORY}:${BUILD_TAG}"
+          sudo podman tag "${IMAGE_NAME}:test" "${IMAGE_REPOSITORY}:${CURRENT_TAG}"
+
+          sudo podman push \
+            --authfile "${HOME}/.docker/config.json" \
+            --digestfile /tmp/published-digest \
+            "${IMAGE_REPOSITORY}:${BUILD_TAG}"
+
+          sudo podman push \
+            --authfile "${HOME}/.docker/config.json" \
+            "${IMAGE_REPOSITORY}:${CURRENT_TAG}"
+
+          digest="$(cat /tmp/published-digest)"
+          [[ "${digest}" =~ ^sha256:[0-9a-f]{64}$ ]]
+          echo "digest=${digest}" >> "${GITHUB_OUTPUT}"
+
+      - name: Sign image digest
+        if: github.event_name != 'pull_request' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+        shell: bash
+        env:
+          COSIGN_PRIVATE_KEY: ${{ secrets.SIGNING_SECRET }}
+          DIGEST: ${{ steps.push.outputs.digest }}
+        run: |
+          set -euo pipefail
+          cosign sign -y \
+            --new-bundle-format=false \
+            --use-signing-config=false \
+            --key env://COSIGN_PRIVATE_KEY \
+            "${IMAGE_REPOSITORY}@${DIGEST}"
+
+      - name: Verify published signature
+        if: github.event_name != 'pull_request' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+        shell: bash
+        env:
+          DIGEST: ${{ steps.push.outputs.digest }}
+        run: |
+          set -euo pipefail
+          cosign verify \
+            --new-bundle-format=false \
+            --key cosign.pub \
+            "${IMAGE_REPOSITORY}@${DIGEST}"
+
+      - name: Build summary
+        if: always()
+        shell: bash
+        env:
+          DIGEST: ${{ steps.push.outputs.digest }}
+        run: |
+          {
+            echo "## ${{ matrix.image_name }}"
+            echo
+            echo "- Target: ${{ matrix.target }}"
+            echo "- Moving tag: ${IMAGE_REPOSITORY:-not-published}:${CURRENT_TAG}"
+            echo "- Immutable tag: ${IMAGE_REPOSITORY:-not-published}:${BUILD_TAG:-n/a}"
+            echo "- Digest: ${DIGEST:-not-published}"
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+  release:
+    name: Publish GitHub release
+    needs: build
+    if: github.event_name != 'pull_request' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    runs-on: ubuntu-24.04
+
+    permissions:
+      contents: write
+      packages: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Install release tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y jq skopeo
+
+      - name: Login to GHCR
+        shell: bash
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          printf '%s' "${GHCR_TOKEN}" | skopeo login ghcr.io \
+            --username "${GITHUB_ACTOR}" \
+            --password-stdin
+
+      - name: Publish release for matching image pair
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          registry="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}"
+          short_sha="${GITHUB_SHA:0:7}"
+          build_date="$(git show -s --format=%cd --date=format:%Y%m%d HEAD)"
+          release_tag="${CURRENT_TAG}-${build_date}-${short_sha}"
+
+          normal_image="${registry}/home-server-alma:${release_tag}"
+          hci_image="${registry}/home-server-alma-hci:${release_tag}"
+
+          normal_digest="$(skopeo inspect --format '{{.Digest}}' "docker://${normal_image}")"
+          hci_digest="$(skopeo inspect --format '{{.Digest}}' "docker://${hci_image}")"
+
+          [[ "${normal_digest}" =~ ^sha256:[0-9a-f]{64}$ ]]
+          [[ "${hci_digest}" =~ ^sha256:[0-9a-f]{64}$ ]]
+
+          release_date="${build_date:0:4}-${build_date:4:2}-${build_date:6:2}"
+          release_title="Home Server Alma 10 - ${release_date}"
+
+          cat > /tmp/release-notes.md <<EOF_NOTES
+          > [!CAUTION]
+          > Home Server Alma is still in development. These images are intended for VM testing, not production or a real home server yet.
+
+          ## Home Server Alma 10
+
+          Both images were built from the same AlmaLinux 10 minimal-plus Home Server feature layer.
+          The HCI image adds only the virtualization stack and VM-management tools.
+
+          ### Home Server Alma
+
+          Current image:
+
+          \`\`\`text
+          ${registry}/home-server-alma:${CURRENT_TAG}
+          \`\`\`
+
+          Immutable image:
+
+          \`\`\`text
+          ${normal_image}
+          \`\`\`
+
+          Digest:
+
+          \`\`\`text
+          ${normal_digest}
+          \`\`\`
+
+          ### Home Server Alma HCI
+
+          Current image:
+
+          \`\`\`text
+          ${registry}/home-server-alma-hci:${CURRENT_TAG}
+          \`\`\`
+
+          Immutable image:
+
+          \`\`\`text
+          ${hci_image}
+          \`\`\`
+
+          Digest:
+
+          \`\`\`text
+          ${hci_digest}
+          \`\`\`
+
+          Both published image digests are signed with the Home Server Project Cosign key.
+          EOF_NOTES
+
+          if gh release view "${release_tag}" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
+            gh release edit "${release_tag}" \
+              --repo "${GITHUB_REPOSITORY}" \
+              --title "${release_title}" \
+              --notes-file /tmp/release-notes.md \
+              --latest
+          else
+            gh release create "${release_tag}" \
+              --repo "${GITHUB_REPOSITORY}" \
+              --target "${GITHUB_SHA}" \
+              --title "${release_title}" \
+              --notes-file /tmp/release-notes.md \
+              --latest
+          fi

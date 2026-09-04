@@ -1,0 +1,23 @@
+# Home Server Alma system Quadlet for Cockpit's containerized web service.
+# Host-side Cockpit bridge/pages are native packages; only cockpit-ws is containerized.
+
+[Unit]
+Description=Cockpit web console for Home Server Alma
+Wants=network-online.target
+After=network-online.target sshd.service
+
+[Container]
+Image=quay.io/cockpit/ws:latest
+ContainerName=cockpit-ws
+Network=host
+Volume=/:/host
+Environment=NAME=cockpit-ws
+Exec=/container/label-run
+PodmanArgs=--privileged --pid=host
+
+[Service]
+Restart=always
+TimeoutStartSec=900
+
+[Install]
+WantedBy=multi-user.target
