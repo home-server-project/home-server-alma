@@ -127,6 +127,37 @@ jobs:
           echo "alma_builder_ref=$(resolve_ref "${ALMA_BUILDER_IMAGE}")" >> "${GITHUB_OUTPUT}"
           echo "fedora_builder_ref=$(resolve_ref "${FEDORA_BUILDER_IMAGE}")" >> "${GITHUB_OUTPUT}"
 
+      - name: Pre-pull resolved build inputs
+        shell: bash
+        env:
+          ALMA_REPOS_REF: ${{ steps.inputs.outputs.repos_ref }}
+          BOOTC_IMAGECTL_REF: ${{ steps.inputs.outputs.imagectl_ref }}
+          ALMA_BUILDER_REF: ${{ steps.inputs.outputs.alma_builder_ref }}
+          FEDORA_BUILDER_REF: ${{ steps.inputs.outputs.fedora_builder_ref }}
+        run: |
+          set -euo pipefail
+
+          pull_with_retry() {
+            local image="$1"
+            local attempt
+            for attempt in 1 2 3; do
+              echo "Pull ${attempt}/3: ${image}"
+              if sudo podman pull "${image}"; then
+                return 0
+              fi
+              if [[ "${attempt}" -lt 3 ]]; then
+                sleep $((attempt * 10))
+              fi
+            done
+            echo "ERROR: failed to pull ${image} after 3 attempts." >&2
+            return 1
+          }
+
+          pull_with_retry "${ALMA_REPOS_REF}"
+          pull_with_retry "${BOOTC_IMAGECTL_REF}"
+          pull_with_retry "${ALMA_BUILDER_REF}"
+          pull_with_retry "${FEDORA_BUILDER_REF}"
+
       - name: Prepare image names and deterministic release tag
         shell: bash
         run: |
@@ -153,7 +184,7 @@ jobs:
           set -euo pipefail
 
           sudo podman build \
-            --pull=always \
+            --pull=never \
             --security-opt=label=disable \
             --cap-add=all \
             --device /dev/fuse \
