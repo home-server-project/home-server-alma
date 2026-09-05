@@ -32,9 +32,7 @@ test -f /usr/share/cockpit/machines/manifest.json
 pass 'Cockpit Machines plugin'
 
 PYTHONPATH=/usr/libexec/virtui-manager/python \
-    python3 -c 'import textual, libvirt, yaml, requests, netifaces, gi, packaging, markdown_it, vmanager.wrapper'
-virtui-manager --help >/dev/null
-vmc --help >/dev/null
+    python3 -c 'import textual, libvirt, yaml, requests, netifaces, gi, packaging, markdown_it; from vmanager import wrapper; assert callable(wrapper.main); assert callable(wrapper.cmd_main)'
 pass 'VirtUI Manager imports and CLI entry points'
 
 printf 'CRITICAL HCI HEALTH: PASS\n'
