@@ -135,7 +135,10 @@ RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
     MERGERFS_SHA256="${MERGERFS_SHA256}" \
     /ctx/build_files/build-common.sh
 
-RUN bootc container lint --fatal-warnings
+# This shared stage still contains transient package-manager/runtime state that is
+# cleaned by finalize-image.sh. Check structural bootc validity here, and reserve
+# fatal warnings for the completed variants after finalization.
+RUN bootc container lint
 STOPSIGNAL SIGRTMIN+3
 CMD ["/sbin/init"]
 
