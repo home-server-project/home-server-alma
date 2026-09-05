@@ -28,7 +28,7 @@ done
 
 rpm -q \
     btrfs-progs nfs-utils samba \
-    libva intel-compute-runtime intel-media-driver \
+    intel-compute-runtime \
     cockpit-system cockpit-files cockpit-podman cockpit-storaged >/dev/null
 pass 'critical package contract'
 

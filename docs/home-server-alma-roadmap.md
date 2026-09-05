@@ -149,24 +149,18 @@ Both images target good physical-server coverage:
 
 ### Intel and AMD media acceleration
 
-GPU/media support belongs on **both** images.
+GPU/media support follows the project's **container-first** application model.
 
-Intel:
+Host responsibilities on both images:
 
-- Alma kernel Intel DRM/i915 support
-- Intel GPU firmware
-- `intel-media-driver` for modern Quick Sync / VA-API
-- narrowly scoped RPM Fusion EL10 source
-- later real Jellyfin `/dev/dri` transcode validation
+- Alma kernel Intel DRM/i915 and AMD amdgpu support
+- Intel and AMD GPU firmware
+- `/dev/dri` device availability on supported hardware
+- `intel-compute-runtime` for Intel compute/OpenCL support, following the uCore reference model
 
-AMD:
+The host does **not** install a dedicated VA-API media userspace stack such as `intel-media-driver`, host `libva`, or Mesa VA-API packages solely for container workloads. Media applications such as Jellyfin, Plex or HandBrake are expected to run as containers and carry the compatible VA-API/Quick Sync or Mesa userspace libraries they require while receiving the relevant `/dev/dri` devices.
 
-- Alma kernel amdgpu support
-- AMD GPU firmware
-- Mesa VA-API userspace
-- later real `/dev/dri` workload validation
-
-CI verifies the package/library contract; actual hardware acceleration claims require real hardware testing.
+CI verifies the host package/firmware contract. Real Intel/AMD hardware acceleration claims require bare-metal testing with actual application containers and `/dev/dri` passthrough.
 
 ### Administration tools
 
@@ -216,7 +210,7 @@ VirtUI Manager is packaged as a local RPM with its Python/Textual runtime isolat
 
 The builder follows the current stable VirtUI tag and the Textual requirement declared by that VirtUI release. Build-only Setuptools is upgraded to a compatible `>=77` so current SPDX metadata can be parsed; that builder tool does not enter the final image.
 
-Do not carry uBlue's Fedora-specific `ublue-os-libvirt-workarounds` package unless Alma testing proves an equivalent workaround is genuinely required.
+Do not carry uBlue's Fedora-specific `ublue-os-libvirt-workarounds` package unless Alma testing proves an equivalent workaround is genuinely required. Alma's current libvirt packaging does require the equivalent sysusers declarations for `libvirt` and `libvirtdbus`; Home Server Alma HCI carries those declarations directly rather than importing the uBlue package.
 
 ## 7. Deliberately excluded
 
@@ -225,6 +219,8 @@ Do not carry uBlue's Fedora-specific `ublue-os-libvirt-workarounds` package unle
 - ZFS / ZFS akmods / Cockpit ZFS Manager
 - Sanoid/Syncoid ZFS workflow
 - NVIDIA drivers/toolkit/images
+- RPM Fusion
+- host VA-API media userspace packages installed only for container workloads
 - uBlue kernel/kmod/signing machinery
 - uBlue COPR repositories
 - custom/LTS kernel replacement
@@ -244,7 +240,7 @@ Preferred source order:
 4. official upstream EL10 release assets
 5. narrowly scoped third-party repositories only when needed
 
-Current external sources include Tailscale, NetBird, narrowly scoped RPM Fusion for Intel media, mergerfs upstream releases, and upstream source builds for UPSide, Superfile and VirtUI Manager.
+Current external sources include Tailscale, NetBird, mergerfs upstream releases, and upstream source builds for UPSide, Superfile and VirtUI Manager. RPM Fusion is not part of the image dependency chain.
 
 ### Latest by default
 
@@ -276,9 +272,11 @@ A failure blocks publication:
 - 4 GiB zram configuration
 - Btrfs userspace smoke test
 - NFS/Samba core tooling
-- Intel/AMD media package contract
+- Intel compute runtime and Intel/AMD GPU firmware host contract
 - **mergerfs real FUSE mount/read/write/unmount test**
 - required Cockpit host components
+
+The host media contract deliberately stops at kernel/device/firmware capability. Container-specific VA-API or Quick Sync userspace is validated later with real workloads rather than being required in the host image.
 
 The mergerfs check is intentionally release-critical because storage-pool failure can remove application access to media/data even when the OS itself still boots.
 
@@ -389,7 +387,7 @@ builds
 
 ### Real workloads
 
-Deploy actual Quadlets including Jellyfin and validate permissions, SELinux, bind mounts, networking, mergerfs-backed media paths and real Intel/AMD hardware transcoding.
+Deploy actual Quadlets including Jellyfin and validate permissions, SELinux, bind mounts, networking, mergerfs-backed media paths, `/dev/dri` device passthrough, and real Intel/AMD hardware transcoding using the container-provided media userspace stack.
 
 ## 13. Installer direction
 
@@ -432,7 +430,7 @@ Alma Black Box is a reference implementation only. Home Server Alma does not der
 
 ## 16. Short definition
 
-**Home Server Alma** is an AlmaLinux 10 minimal-plus bootc image for self-hosted servers with Podman Quadlets, Cockpit, storage/NAS tooling, broad hardware support, Intel/AMD media acceleration, UPS integration, VPN tooling and practical terminal administration tools.
+**Home Server Alma** is an AlmaLinux 10 minimal-plus bootc image for self-hosted servers with Podman Quadlets, Cockpit, storage/NAS tooling, broad hardware support, container-first Intel/AMD media acceleration, UPS integration, VPN tooling and practical terminal administration tools.
 
 **Home Server Alma HCI** is that exact same image plus KVM/QEMU/libvirt, Cockpit Machines, virsh, virt-install, VirtUI Manager and direct virtualization dependencies.
 

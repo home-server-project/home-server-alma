@@ -6,7 +6,6 @@ source /ctx/build_files/software.env
 : "${HOME_SERVER_OPTIONAL_PACKAGES:?HOME_SERVER_OPTIONAL_PACKAGES must be set}"
 : "${TAILSCALE_PACKAGE:?TAILSCALE_PACKAGE must be set}"
 : "${NETBIRD_PACKAGE:?NETBIRD_PACKAGE must be set}"
-: "${INTEL_MEDIA_PACKAGE:?INTEL_MEDIA_PACKAGE must be set}"
 : "${MERGERFS_URL:?MERGERFS_URL must be set}"
 : "${MERGERFS_SHA256:?MERGERFS_SHA256 must be set}"
 
@@ -37,18 +36,6 @@ install_optional_package() {
 read -r -a optional_packages <<< "${HOME_SERVER_OPTIONAL_PACKAGES}"
 for package in "${optional_packages[@]}"; do
     install_optional_package "${package}"
-done
-
-# Intel Quick Sync / VA-API is part of the critical media contract.
-# The modern Intel media driver comes from RPM Fusion EL10. Intel compute/OpenCL
-# support comes from EPEL via intel-compute-runtime in the critical package set.
-dnf install -y \
-    "${RPMFUSION_FREE_RELEASE_URL}" \
-    "${RPMFUSION_NONFREE_RELEASE_URL}"
-dnf install -y "${INTEL_MEDIA_PACKAGE}"
-for repo in /etc/yum.repos.d/rpmfusion*.repo; do
-    [[ -f "${repo}" ]] || continue
-    sed -ri 's/^enabled=1/enabled=0/' "${repo}"
 done
 
 # mergerfs always follows the latest stable upstream EL10 RPM unless an emergency pin
@@ -121,9 +108,7 @@ rpm -q \
     btrfs-progs \
     nfs-utils \
     samba \
-    libva \
     intel-compute-runtime \
-    intel-media-driver \
     cockpit-system \
     cockpit-files \
     cockpit-podman \

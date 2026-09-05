@@ -34,8 +34,10 @@ Both images require:
 - fixed 4 GiB zram configuration
 - Btrfs userspace tools with a disposable filesystem smoke test
 - NFS and Samba core tooling
-- Intel/AMD media userspace package contract
+- Intel compute runtime plus Intel/AMD GPU firmware needed by the host device layer
 - mergerfs package plus a real FUSE mount/read/write/unmount smoke test
+
+GPU media acceleration follows a container-first model. The host supplies kernel GPU drivers, firmware and `/dev/dri`; application containers such as Jellyfin supply their own VA-API/Quick Sync or Mesa userspace stack. CI therefore does not require host `libva`, `intel-media-driver` or Mesa VA-API packages. Real media acceleration remains a hardware acceptance test using actual containers.
 
 The mergerfs functional test is intentionally strict because a broken mergerfs layer can make application storage unavailable to services such as Jellyfin.
 
