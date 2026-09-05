@@ -40,6 +40,8 @@ for package in "${optional_packages[@]}"; do
 done
 
 # Intel Quick Sync / VA-API is part of the critical media contract.
+# The modern Intel media driver comes from RPM Fusion EL10. Intel compute/OpenCL
+# support comes from EPEL via intel-compute-runtime in the critical package set.
 dnf install -y \
     "${RPMFUSION_FREE_RELEASE_URL}" \
     "${RPMFUSION_NONFREE_RELEASE_URL}"
@@ -119,8 +121,8 @@ rpm -q \
     btrfs-progs \
     nfs-utils \
     samba \
-    mesa-va-drivers \
     libva \
+    intel-compute-runtime \
     intel-media-driver \
     cockpit-system \
     cockpit-files \
