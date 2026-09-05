@@ -8,14 +8,17 @@ rpm -q \
     virt-install swtpm edk2-ovmf libosinfo osinfo-db virtui-manager >/dev/null
 pass 'HCI critical package contract'
 
-for cmd in virsh virt-install qemu-system-x86_64 swtpm virtui-manager vmc; do
+for cmd in virsh virt-install swtpm virtui-manager vmc; do
     command -v "${cmd}" >/dev/null
     pass "command ${cmd}"
 done
 
+test -x /usr/libexec/qemu-kvm
+pass 'RHEL QEMU KVM binary'
+
 virsh --version >/dev/null
 virt-install --version >/dev/null
-qemu-system-x86_64 --version >/dev/null
+/usr/libexec/qemu-kvm --version >/dev/null
 swtpm --version >/dev/null
 pass 'libvirt/QEMU/TPM binaries initialize'
 
