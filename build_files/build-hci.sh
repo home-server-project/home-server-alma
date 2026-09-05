@@ -8,6 +8,12 @@ read -r -a hci_packages <<< "${HOME_SERVER_HCI_PACKAGES}"
 dnf install -y "${hci_packages[@]}"
 dnf install -y /virtui-manager-rpm/virtui-manager-*.noarch.rpm
 
+# AlmaLinux 10 libvirt packages still create these accounts via RPM scriptlets.
+# Declare them for bootc using the same sysusers model as uCore HCI.
+install -Dm0644 \
+    /ctx/build_files/libvirt-workarounds.sysusers.conf \
+    /usr/lib/sysusers.d/home-server-alma-libvirt-workarounds.conf
+
 for unit in libvirtd.socket virtqemud.socket; do
     if systemctl cat "${unit}" >/dev/null 2>&1; then
         systemctl enable "${unit}" 2>/dev/null || true
