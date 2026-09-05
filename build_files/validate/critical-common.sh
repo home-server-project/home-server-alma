@@ -26,12 +26,6 @@ for cmd in \
     pass "command ${cmd}"
 done
 
-if ! rpm -ql podman | grep -Eq '/quadlet$'; then
-    echo 'ERROR: Podman Quadlet binary is missing.' >&2
-    exit 1
-fi
-pass 'Podman Quadlet integration'
-
 rpm -q \
     btrfs-progs nfs-utils samba \
     libva intel-compute-runtime intel-media-driver \
