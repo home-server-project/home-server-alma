@@ -34,7 +34,7 @@ pass 'Podman Quadlet integration'
 
 rpm -q \
     btrfs-progs nfs-utils samba \
-    mesa-va-drivers libva intel-media-driver \
+    libva intel-compute-runtime intel-media-driver \
     cockpit-system cockpit-files cockpit-podman cockpit-storaged >/dev/null
 pass 'critical package contract'
 
