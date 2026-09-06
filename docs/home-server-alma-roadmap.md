@@ -391,7 +391,7 @@ Deploy actual Quadlets including Jellyfin and validate permissions, SELinux, bin
 
 ## 13. Installer direction
 
-Installer/builder work belongs under the Home Server Project as a separate reusable repository/template, not coupled to Alma Black Box.
+Installer/builder work belongs under the Home Server Project as a separate reusable repository/template.
 
 Expected later workflow:
 
@@ -423,10 +423,7 @@ Clonezilla remains an additional backup option.
 
 - Universal Blue uCore: https://github.com/ublue-os/ucore
 - Home Server uCore: https://github.com/home-server-project/home-server-ucore
-- Alma Black Box reference: https://github.com/highwaytoit/alma-black-box
 - AlmaLinux bootc images: https://github.com/AlmaLinux/bootc-images
-
-Alma Black Box is a reference implementation only. Home Server Alma does not derive from it.
 
 ## 16. Short definition
 
