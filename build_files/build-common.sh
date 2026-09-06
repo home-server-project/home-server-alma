@@ -10,6 +10,7 @@ source /ctx/build_files/software.env
 : "${MERGERFS_SHA256:?MERGERFS_SHA256 must be set}"
 
 cp -avf /ctx/system_files/. /
+chmod 0440 /etc/sudoers.d/90-home-server-alma-passwordless-wheel
 
 if ! dnf repolist --enabled | grep -Eiq '(^|[[:space:]])crb([[:space:]]|$)'; then
     echo "ERROR: AlmaLinux CRB repository is not enabled."
@@ -105,11 +106,12 @@ systemctl enable firewalld.service 2>/dev/null || true
 systemctl enable sshd.service 2>/dev/null || true
 
 # Cheap build-time checks. Functional release gates run against the completed image in CI.
-for cmd in bootc podman nmcli nmtui firewall-cmd sshd resolvectl btrfs mergerfs cockpit-bridge; do
+for cmd in bootc podman nmcli nmtui firewall-cmd sshd resolvectl sudo visudo btrfs mergerfs cockpit-bridge; do
     command -v "${cmd}"
 done
 
 rpm -q \
+    sudo \
     systemd-resolved \
     zram-generator \
     btrfs-progs \
@@ -120,6 +122,11 @@ rpm -q \
     cockpit-files \
     cockpit-podman \
     cockpit-storaged
+
+test -f /etc/sudoers.d/90-home-server-alma-passwordless-wheel
+test "$(stat -c '%a %U %G' /etc/sudoers.d/90-home-server-alma-passwordless-wheel)" = "440 root root"
+grep -Fqx '%wheel ALL=(ALL) NOPASSWD: ALL' /etc/sudoers.d/90-home-server-alma-passwordless-wheel
+visudo -cf /etc/sudoers
 
 test -f /etc/systemd/zram-generator.conf
 grep -Eq '^zram-size[[:space:]]*=[[:space:]]*4096$' /etc/systemd/zram-generator.conf
