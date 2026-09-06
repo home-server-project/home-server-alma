@@ -31,6 +31,12 @@ scope. Applications are intended to run as Podman Quadlets.
 
 The system uses a fixed **4 GiB zram swap device** and does not require a disk swap partition.
 
+## Administrative access
+
+Home Server Alma follows the passwordless administrator pattern used by Fedora CoreOS/uCore. Users
+in AlmaLinux's standard `wheel` group can use `sudo` without an additional password prompt. This is
+intended for trusted administrator accounts on an appliance-style home server.
+
 ## Development status
 
 Current goal: build both signed images, validate them in VMs, then proceed to controlled bare-metal
