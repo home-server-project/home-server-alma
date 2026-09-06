@@ -1,0 +1,9 @@
+[Unit]
+Description=Check and stage Home Server Alma bootc updates daily
+
+[Timer]
+OnCalendar=daily
+Persistent=true
+
+[Install]
+WantedBy=timers.target

@@ -10,6 +10,8 @@ on:
       - '**/README.md'
       - 'docs/**'
   workflow_dispatch:
+  schedule:
+    - cron: '20 5 * * 6'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref || github.run_id }}
@@ -18,6 +20,8 @@ concurrency:
 env:
   IMAGE_REGISTRY: ghcr.io/${{ github.repository_owner }}
   CURRENT_TAG: '10'
+  RECHUNK_MAX_LAYERS: '127'
+  OCI_LAYER_LIMIT: '128'
   ALMA_REPOS_IMAGE: quay.io/almalinuxorg/10-base:10
   BOOTC_IMAGECTL_IMAGE: quay.io/centos-bootc/centos-bootc:stream10
   ALMA_BUILDER_IMAGE: quay.io/almalinuxorg/10-kitten-base:10-kitten
@@ -30,6 +34,7 @@ jobs:
     permissions:
       contents: read
     outputs:
+      build_date: ${{ steps.metadata.outputs.build_date }}
       mergerfs_tag: ${{ steps.external.outputs.mergerfs_tag }}
       mergerfs_url: ${{ steps.external.outputs.mergerfs_url }}
       mergerfs_sha256: ${{ steps.external.outputs.mergerfs_sha256 }}
@@ -40,6 +45,13 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Prepare build metadata
+        id: metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "build_date=$(date -u +%Y%m%d)" >> "${GITHUB_OUTPUT}"
 
       - name: Resolve latest stable external software
         id: external
@@ -57,6 +69,7 @@ jobs:
           {
             echo '## External software snapshot'
             echo
+            echo "- Build date: ${{ steps.metadata.outputs.build_date }}"
             echo "- mergerfs: ${{ steps.external.outputs.mergerfs_tag }}"
             echo "- UPSide: ${{ steps.external.outputs.upside_tag || 'degraded/unresolved' }}"
             echo "- Superfile: ${{ steps.external.outputs.superfile_tag || 'degraded/unresolved' }}"
@@ -165,7 +178,7 @@ jobs:
           registry="${IMAGE_REGISTRY,,}"
           image_name="${{ matrix.image_name }}"
           short_sha="${GITHUB_SHA:0:7}"
-          build_date="$(git show -s --format=%cd --date=format:%Y%m%d HEAD)"
+          build_date="${{ needs.resolve_external.outputs.build_date }}"
           build_tag="${CURRENT_TAG}-${build_date}-${short_sha}"
 
           echo "IMAGE_REGISTRY=${registry}" >> "${GITHUB_ENV}"
@@ -202,9 +215,46 @@ jobs:
             --build-arg "HOME_SERVER_ALMA_HCI_REPOSITORY=${IMAGE_REGISTRY}/home-server-alma-hci" \
             --label "org.opencontainers.image.revision=${GITHUB_SHA}" \
             --label "org.opencontainers.image.created=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-            --tag "${IMAGE_NAME}:test" \
+            --tag "${IMAGE_NAME}:unrechunked" \
             --file Containerfile \
             .
+
+      - name: Rechunk image
+        id: rechunk
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          rechunk_tmp="${RUNNER_TEMP}/${IMAGE_NAME}-rechunk"
+          sudo mkdir -p "${rechunk_tmp}"
+          sudo chmod 1777 "${rechunk_tmp}"
+
+          df -h "${RUNNER_TEMP}" /var/lib/containers
+
+          sudo podman run --rm --privileged \
+            -v /var/lib/containers:/var/lib/containers \
+            -v "${rechunk_tmp}:/var/tmp" \
+            --entrypoint /usr/libexec/bootc-base-imagectl \
+            "localhost/${IMAGE_NAME}:unrechunked" \
+            rechunk \
+            --max-layers "${RECHUNK_MAX_LAYERS}" \
+            "localhost/${IMAGE_NAME}:unrechunked" \
+            "localhost/${IMAGE_NAME}:test"
+
+          layer_count="$(
+            sudo skopeo inspect --raw \
+              "containers-storage:localhost/${IMAGE_NAME}:test" \
+              | jq -r '.layers | length'
+          )"
+
+          [[ "${layer_count}" =~ ^[0-9]+$ ]]
+          if (( layer_count > OCI_LAYER_LIMIT )); then
+            echo "ERROR: rechunked image has ${layer_count} layers; OCI maximum is ${OCI_LAYER_LIMIT}" >&2
+            exit 1
+          fi
+
+          echo "layers=${layer_count}" >> "${GITHUB_OUTPUT}"
+          echo "Rechunked image layers: ${layer_count} / OCI max ${OCI_LAYER_LIMIT} (RPM chunk target ${RECHUNK_MAX_LAYERS})"
 
       - name: Critical common health
         shell: bash
@@ -316,12 +366,14 @@ jobs:
         if: always()
         shell: bash
         env:
+          RECHUNK_LAYERS: ${{ steps.rechunk.outputs.layers }}
           DIGEST: ${{ steps.push.outputs.digest }}
         run: |
           {
             echo "## ${{ matrix.image_name }}"
             echo
             echo "- Target: ${{ matrix.target }}"
+            echo "- Rechunked layers: ${RECHUNK_LAYERS:-unknown} / OCI max ${OCI_LAYER_LIMIT} (RPM chunk target ${RECHUNK_MAX_LAYERS})"
             echo "- Moving tag: ${IMAGE_REPOSITORY:-not-published}:${CURRENT_TAG}"
             echo "- Immutable tag: ${IMAGE_REPOSITORY:-not-published}:${BUILD_TAG:-n/a}"
             echo "- Digest: ${DIGEST:-not-published}"
@@ -329,7 +381,7 @@ jobs:
 
   release:
     name: Publish GitHub release
-    needs: build
+    needs: [resolve_external, build]
     if: github.event_name != 'pull_request' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
     runs-on: ubuntu-24.04
 
@@ -366,7 +418,7 @@ jobs:
           set -euo pipefail
           registry="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}"
           short_sha="${GITHUB_SHA:0:7}"
-          build_date="$(git show -s --format=%cd --date=format:%Y%m%d HEAD)"
+          build_date="${{ needs.resolve_external.outputs.build_date }}"
           release_tag="${CURRENT_TAG}-${build_date}-${short_sha}"
 
           normal_image="${registry}/home-server-alma:${release_tag}"

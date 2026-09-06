@@ -11,7 +11,6 @@ variables:
 # standard behavior without inheriting the broad standard server package set.
 include:
   - minimal-plus/manifest.yaml
-  - standard/autoupdates.yaml
   - standard/system-configuration.yaml
   - standard/persistent-journal.yaml
   - standard/generic-growfs.yaml

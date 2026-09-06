@@ -19,14 +19,33 @@ test -f /etc/systemd/zram-generator.conf
 grep -Eq '^zram-size[[:space:]]*=[[:space:]]*4096$' /etc/systemd/zram-generator.conf
 pass '4 GiB zram policy'
 
+test -f /etc/NetworkManager/conf.d/90-systemd-resolved.conf
+grep -Fqx 'dns=systemd-resolved' /etc/NetworkManager/conf.d/90-systemd-resolved.conf
+test -f /usr/lib/tmpfiles.d/home-server-alma-resolved.conf
+grep -Fqx 'L+ /etc/resolv.conf - - - - /run/systemd/resolve/stub-resolv.conf' \
+    /usr/lib/tmpfiles.d/home-server-alma-resolved.conf
+test "$(systemctl is-enabled systemd-resolved.service)" = "enabled"
+pass 'systemd-resolved split-DNS integration'
+
+test -f /usr/lib/systemd/system/home-server-alma-update.service
+test -f /usr/lib/systemd/system/home-server-alma-update.timer
+test "$(systemctl is-enabled bootc-fetch-apply-updates.timer)" = "masked"
+test "$(systemctl is-enabled bootc-fetch-apply-updates.service)" = "masked"
+test "$(systemctl is-enabled home-server-alma-update.timer)" = "enabled"
+pass 'staged bootc update policy without automatic reboot'
+
+test "$(stat -c '%a %U %G' /var/tmp)" = "1777 root root"
+pass '/var/tmp early-boot mountpoint'
+
 for cmd in \
-    podman nmcli firewall-cmd sshd cockpit-bridge \
+    podman nmcli resolvectl firewall-cmd sshd cockpit-bridge \
     mergerfs btrfs mkfs.btrfs exportfs smbd testparm; do
     command -v "${cmd}" >/dev/null
     pass "command ${cmd}"
 done
 
 rpm -q \
+    systemd-resolved \
     btrfs-progs nfs-utils samba \
     intel-compute-runtime \
     cockpit-system cockpit-files cockpit-podman cockpit-storaged >/dev/null

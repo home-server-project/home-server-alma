@@ -80,6 +80,11 @@ done
 
 systemctl disable cockpit.socket cockpit.service 2>/dev/null || true
 
+# Stage bootc updates automatically but never let the generic upstream update
+# units reboot a home server without administrator control.
+systemctl mask bootc-fetch-apply-updates.timer bootc-fetch-apply-updates.service
+systemctl enable home-server-alma-update.timer
+
 install -d -m0755 /usr/share/doc/home-server-alma
 cp -avf /ctx/docs/. /usr/share/doc/home-server-alma/
 
@@ -95,15 +100,17 @@ install -m0755 /ctx/build_files/validate/optional.sh \
     /usr/libexec/home-server-alma/health/optional
 
 systemctl enable NetworkManager.service 2>/dev/null || true
+systemctl enable systemd-resolved.service
 systemctl enable firewalld.service 2>/dev/null || true
 systemctl enable sshd.service 2>/dev/null || true
 
 # Cheap build-time checks. Functional release gates run against the completed image in CI.
-for cmd in bootc podman nmcli nmtui firewall-cmd sshd btrfs mergerfs cockpit-bridge; do
+for cmd in bootc podman nmcli nmtui firewall-cmd sshd resolvectl btrfs mergerfs cockpit-bridge; do
     command -v "${cmd}"
 done
 
 rpm -q \
+    systemd-resolved \
     zram-generator \
     btrfs-progs \
     nfs-utils \
@@ -116,4 +123,20 @@ rpm -q \
 
 test -f /etc/systemd/zram-generator.conf
 grep -Eq '^zram-size[[:space:]]*=[[:space:]]*4096$' /etc/systemd/zram-generator.conf
+
+test -f /etc/NetworkManager/conf.d/90-systemd-resolved.conf
+grep -Fqx '[main]' /etc/NetworkManager/conf.d/90-systemd-resolved.conf
+grep -Fqx 'dns=systemd-resolved' /etc/NetworkManager/conf.d/90-systemd-resolved.conf
+
+test -f /usr/lib/tmpfiles.d/home-server-alma-resolved.conf
+grep -Fqx 'L+ /etc/resolv.conf - - - - /run/systemd/resolve/stub-resolv.conf' \
+    /usr/lib/tmpfiles.d/home-server-alma-resolved.conf
+
+test -f /usr/lib/systemd/system/home-server-alma-update.service
+test -f /usr/lib/systemd/system/home-server-alma-update.timer
+test "$(systemctl is-enabled bootc-fetch-apply-updates.timer)" = "masked"
+test "$(systemctl is-enabled bootc-fetch-apply-updates.service)" = "masked"
+test "$(systemctl is-enabled home-server-alma-update.timer)" = "enabled"
+test "$(systemctl is-enabled systemd-resolved.service)" = "enabled"
+
 semodule -l >/dev/null
