@@ -15,7 +15,7 @@ The repository builds two images in parallel:
 
 Both images contain the same full Home Server feature set: Podman + Quadlets, Cockpit host
 integration, storage/NAS tools, NUT + UPSide, Tailscale, NetBird, WireGuard tools, Intel/AMD
-hardware and media support, and practical terminal administration tools.
+hardware, and practical terminal administration tools.
 
 `home-server-alma-hci` adds only the virtualization stack:
 
