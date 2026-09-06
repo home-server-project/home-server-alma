@@ -15,6 +15,12 @@ test -f /etc/containers/registries.d/ghcr.io-home-server-project.yaml
 test -f /usr/share/containers/systemd/cockpit.container
 pass 'image trust and Cockpit Quadlet files'
 
+test -f /etc/sudoers.d/90-home-server-alma-passwordless-wheel
+test "$(stat -c '%a %U %G' /etc/sudoers.d/90-home-server-alma-passwordless-wheel)" = "440 root root"
+grep -Fqx '%wheel ALL=(ALL) NOPASSWD: ALL' /etc/sudoers.d/90-home-server-alma-passwordless-wheel
+visudo -cf /etc/sudoers >/dev/null
+pass 'passwordless wheel administration'
+
 test -f /etc/systemd/zram-generator.conf
 grep -Eq '^zram-size[[:space:]]*=[[:space:]]*4096$' /etc/systemd/zram-generator.conf
 pass '4 GiB zram policy'
@@ -38,14 +44,14 @@ test "$(stat -c '%a %U %G' /var/tmp)" = "1777 root root"
 pass '/var/tmp early-boot mountpoint'
 
 for cmd in \
-    podman nmcli resolvectl firewall-cmd sshd cockpit-bridge \
+    sudo visudo podman nmcli resolvectl firewall-cmd sshd cockpit-bridge \
     mergerfs btrfs mkfs.btrfs exportfs smbd testparm; do
     command -v "${cmd}" >/dev/null
     pass "command ${cmd}"
 done
 
 rpm -q \
-    systemd-resolved \
+    sudo systemd-resolved \
     btrfs-progs nfs-utils samba \
     intel-compute-runtime \
     cockpit-system cockpit-files cockpit-podman cockpit-storaged >/dev/null
