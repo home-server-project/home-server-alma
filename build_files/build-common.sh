@@ -39,6 +39,59 @@ for package in "${optional_packages[@]}"; do
     install_optional_package "${package}"
 done
 
+# EL10 bootc keeps vendor groups in /usr/lib/group while systemd-sysusers can
+# place supplementary memberships in /etc/gshadow. NUT runtime access expects
+# its service account to carry tty and dialout membership in the image-managed
+# group database itself.
+if rpm -q nut >/dev/null 2>&1 && getent passwd nut >/dev/null 2>&1; then
+    for group_name in tty dialout; do
+        if ! grep -q "^${group_name}:" /usr/lib/group; then
+            printf 'Required NUT group is missing from /usr/lib/group: %s\n' "${group_name}" \
+                > /usr/share/home-server-rose/build-health/nut-groups.failed
+            continue
+        fi
+    done
+
+    if [[ ! -f /usr/share/home-server-rose/build-health/nut-groups.failed ]]; then
+        awk -F: -v OFS=: '
+        $1 == "tty" || $1 == "dialout" {
+            count = split($4, members, ",")
+            found = 0
+            for (i = 1; i <= count; i++) {
+                if (members[i] == "nut")
+                    found = 1
+            }
+            if (!found)
+                $4 = ($4 == "" ? "nut" : $4 ",nut")
+        }
+        { print }
+        ' /usr/lib/group > /tmp/home-server-rose-group
+        install -o root -g root -m0644 /tmp/home-server-rose-group /usr/lib/group
+        rm -f /tmp/home-server-rose-group
+    fi
+
+    # Preserve the package-declared secure ownership and permissions for NUT
+    # server configuration in the vendor /etc payload.
+    for nut_file in /etc/ups/upsd.conf /etc/ups/upsd.users; do
+        if [[ -f "${nut_file}" ]]; then
+            chown root:nut "${nut_file}"
+            chmod 0640 "${nut_file}"
+        else
+            printf 'Expected NUT configuration file is missing: %s\n' "${nut_file}" \
+                >> /usr/share/home-server-rose/build-health/nut-config.failed
+        fi
+    done
+fi
+
+# PCP provides UPSide historical trends. Keep the focused PCP + OpenMetrics set
+# and enable the two host-native collection services only when PCP installed.
+if rpm -q pcp >/dev/null 2>&1; then
+    if ! systemctl enable pmcd.service pmlogger.service; then
+        printf 'PCP installed but pmcd/pmlogger could not be enabled.\n' \
+            > /usr/share/home-server-rose/build-health/pcp-services.failed
+    fi
+fi
+
 # Home Server Packages owns source tracking, package builds, and cross-distro
 # validation for these utilities. Rose consumes the exact RPM artifacts selected
 # by the workflow for this image build.
